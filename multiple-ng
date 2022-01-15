@@ -26,7 +26,7 @@ count = var.ssh_access_eks_workers && local.managed_node_group["create_nodegroup
 ## Every node will have the label of the nodegroup
 topology.kubernetes.io/zone=us-east-1b
 
-# This label can be used to deploy EBS dependent workloads
+# These labels (e.g. topology.kubernetes.io/zone=us-west-2b)  will automatically be added to your nodes via the Kubernetes cloud provider and automatically added to your PersistentVolumes via the AWS EBS CSI driver. This means that the initial pod placement and EBS volume provisioning is transparent to you when the pod is initially scheduled. This label can be used to deploy EBS dependent workloads
 # Read blog: https://aws.amazon.com/blogs/containers/amazon-eks-cluster-multi-zone-auto-scaling-groups/
 
 #If a pod using an EBS volume is rescheduled or the instance is terminated, you will need to make sure your pod has a nodeSelector that matches your topology label
