@@ -40,4 +40,4 @@ This is typically fine for smaller or single AZ clusters but when you start to s
 
 By setting externalTrafficPolicy to Local, instances that are running the service container will be load balancer backends, which will reduce the number of endpoints on the load balancer and the number of hops the traffic will need to take.
 
-Another benefit of using the Local policy is you can preserve the source IP from the request. As the packets route through the load balancer to your instance and ultimately your service, the IP from the originating request can be preserved without an additional kube-proxy hop.
+Another benefit of using the Local policy is you can preserve the source IP from the request. As the packets route through the load balancer to your instance and ultimately your service, the IP from the originating request can be preserved without an additional kube-proxy hop. 
