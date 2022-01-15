@@ -26,3 +26,5 @@ topology.kubernetes.io/zone=us-east-1b
 
 # This label can be used to deploy EBS dependent workloads
 # Read blog: https://aws.amazon.com/blogs/containers/amazon-eks-cluster-multi-zone-auto-scaling-groups/
+
+#If a pod using an EBS volume is rescheduled or the instance is terminated, you will need to make sure your pod has a nodeSelector that matches your topology label
