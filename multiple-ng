@@ -1,0 +1,19 @@
+# Create Multiple nodegroups - hardcode the subnet IDs
+
+
+# To avoid the duplicate creation of the SG rules for multiple nodegroups
+# In deploy/main.tf
+# In nodegroup block
+# For first nodegroup:
+create_nodegroup_ssh_and_nodeports_rule = true
+# For additional nodegroups:
+create_nodegroup_ssh_and_nodeports_rule = false
+
+# In modules/aws-eks-managed-nodegroup directory
+
+# In locals.tf
+create_nodegroup_ssh_and_nodeports_rule = false
+
+# In secgroups.tf
+# Set this count in the AllowSSH and the NodeGroup SG rule
+count = var.ssh_access_eks_workers && local.managed_node_group["create_nodegroup_ssh_and_nodeports_rule"] ? 1 : 0
