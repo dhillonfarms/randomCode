@@ -17,3 +17,12 @@ create_nodegroup_ssh_and_nodeports_rule = false
 # In secgroups.tf
 # Set this count in the AllowSSH and the NodeGroup SG rule
 count = var.ssh_access_eks_workers && local.managed_node_group["create_nodegroup_ssh_and_nodeports_rule"] ? 1 : 0
+
+
+# How to deploy applications to different AZs with EBS and Cluster Autoscaler
+
+## Every node will have the label of the nodegroup
+topology.kubernetes.io/zone=us-east-1b
+
+# This label can be used to deploy EBS dependent workloads
+# Read blog: https://aws.amazon.com/blogs/containers/amazon-eks-cluster-multi-zone-auto-scaling-groups/
