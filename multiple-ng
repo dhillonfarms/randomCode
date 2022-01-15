@@ -30,3 +30,14 @@ topology.kubernetes.io/zone=us-east-1b
 # Read blog: https://aws.amazon.com/blogs/containers/amazon-eks-cluster-multi-zone-auto-scaling-groups/
 
 #If a pod using an EBS volume is rescheduled or the instance is terminated, you will need to make sure your pod has a nodeSelector that matches your topology label
+# An ASG spread across multiple AZs can still take advantage of the cluster autoscaler as well as any auto scaling trigger AWS provides. This includes scaling clusters from internal metrics as well as external sources like Amazon EventBridge.
+
+An ASG that spreads across multiple AZs cannot be scaled on a per-AZ basis, but if you are not using services where resources bound to an AZ (e.g. EBS volumes), it may not be a concern for you. If you can store your container state in EFS or RDS instead of EBS volumes, you should use ASGs that span AZs.
+
+# When running services that span multiple AZs, you should also consider setting the externalTrafficPolicy in your service to help reduce cross AZ traffic. The default setting for externalTrafficPolicy is “Cluster,” which allows every worker node in the cluster to accept traffic for every service no matter if a pod for that service is running on the node or not. Traffic is then forwarded on to a node running the service via kube-proxy.
+
+This is typically fine for smaller or single AZ clusters but when you start to scale your instances it will mean more instances will be backends for a service and the traffic is more likely to have an additional hop before it arrives at the instance running the container it wants.
+
+By setting externalTrafficPolicy to Local, instances that are running the service container will be load balancer backends, which will reduce the number of endpoints on the load balancer and the number of hops the traffic will need to take.
+
+Another benefit of using the Local policy is you can preserve the source IP from the request. As the packets route through the load balancer to your instance and ultimately your service, the IP from the originating request can be preserved without an additional kube-proxy hop.
