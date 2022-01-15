@@ -1,3 +1,5 @@
+# Locally run a test - create two nodegroups - one per AZ - create a deployment per AZ  using nodeSelector and ensure that scaling works for both AZ
+
 # Create Multiple nodegroups - hardcode the subnet IDs
 
 
