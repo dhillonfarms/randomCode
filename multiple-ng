@@ -2,6 +2,7 @@
 
 # Create Multiple nodegroups - hardcode the subnet IDs
 
+# Add variables in data.tf for private_subnet in each AZ
 
 # To avoid the duplicate creation of the SG rules for multiple nodegroups
 # In deploy/main.tf
