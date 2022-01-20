@@ -1,0 +1,22 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-zone1a-deployment
+  namespace: default
+spec:
+  selector:
+    matchLabels:
+      app: nginx-zone1a
+  replicas: 2 
+  template:
+    metadata:
+      labels:
+        app: nginx-zone1a
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:latest
+        ports:
+        - containerPort: 80
+      nodeSelector:
+        topology.kubernetes.io/zone: us-east-1a
