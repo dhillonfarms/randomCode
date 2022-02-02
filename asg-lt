@@ -1,0 +1,34 @@
+provider "aws" {
+  region = "us-east-1"
+  profile = "account4admin"
+}
+
+data "aws_caller_identity" "current" {}
+
+resource "aws_launch_template" "lt1" {
+  name = "test-launch-template-1"
+
+  block_device_mappings {
+    device_name = "/dev/sda1"
+
+    ebs {
+      volume_size = 20
+    }
+  }
+
+  image_id = "ami-0a8b4cd432b1c3063"
+
+  instance_type = "t2.micro"
+}
+
+resource "aws_autoscaling_group" "asg1" {
+  availability_zones = ["us-east-1a"]
+  desired_capacity   = 1
+  max_size           = 1
+  min_size           = 1
+
+  launch_template {
+    id      = aws_launch_template.lt1.id
+    version = "$Latest"
+  }
+}
