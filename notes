@@ -1,0 +1,6 @@
+For the aws_auth change:
+
+1. Add map_roles = local.map_roles in existing_vpc/main.tf
+2. Add map_roles = var.map_roles in infra/main.tf
+3. Remove depends on from aws-eks-workers.tf
+4. Comment out the aws-auth resource
