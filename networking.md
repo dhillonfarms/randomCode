@@ -1,0 +1,780 @@
+# Networking Certification
+
+### VPC Fundamentals
+
+- CIDR specifies number of network bits. Number of host bits will be 32 - CIDR.
+- Total number of host addresses are: 2 ^ (32 - CIDR)
+- VPC Subnet range is between /16 and /28
+- The first 4 and last IP addresses are reserved for the VPC. The last is always used for broadcast while the second address is used for DNS.
+- RFC1918 or the private address range is:
+  - 10.0.0.0/8
+  - 172.16.0.0/12
+  - 192.168.0.0/16
+- Route Tables:
+  - The main route table is always at the VPC level
+  - Any custom route tables can be assigned at the subnet level
+  - Each route table contains a default immutable route table for the local VPC traffic
+- Elastic Network Interface (ENI)
+  - ENI is a logical component represanting virtual nw card
+  - ENI can have:
+    - primary private IPv4 and one or more secondary IPv4
+    - One elastic IPv4 per privte IPv4
+    - one public IPv4
+    - one or more SG
+    - A MAC addresses
+  - ENI can be created independently and attached on the fly to EC2 instances
+  - ENIs are created at AZ level, so these are specific to a certain AZ
+  - ENIs can be created into another accounts as well. This is how EKS control plane is integrated with the data plane as well. Another example is RDS instances residing in AWS managed VPC like EKS Control Plane while ENI is created in customer managed VPC to control traffic using SGs.
+- NAT GW vs NAT instances
+  - NAT GW is created at AZ level. Must be created in each AZ for HA
+  - NAT GW must be created in public subnet.
+  - NAT GW does not have SG, so traffic must be controlled thru NACLs
+  - Source/Destination checks must be disabled for NAT instances
+- VPC Secondary Blocks
+  - Secondary CIDR blocks can be added to the VPC
+  - The secondary CIDR block must not overlap with existing CIDR or peered VPC CIDR
+  - If primary CIDR is from RFC1918, then secondary should also be from same RFC1918 CIDR range or public range
+  - CIDR block must not be same or larger than CIDR blocks of any of the routes in VPC Route tables
+  - Can have total 5 IPv5 and 1 IPv6 CIDR block for VPC
+- VPC Flow logs
+  - Capture IP traffic going in out of interfaces.
+  - Logs can be sent to S3/CW.
+  - Captures nw info from AWS managed interfaces like ELB, RDS etc as well
+  - Query VPC flow logs using Athena on S3 or CW insights
+- VPC Traffic Mirroring
+  - Replicate the traffic from an ENI associated with an EC2 instance for traffic analysis
+  - The target can be either another ENI or an NLB on port 4789
+
+### DNS and DHCP
+
+- VPC comes with default DNS server called Route53 DNS Resolver
+- Resolver runs at VPC Base address + 2
+- Resolves DNS requests for public and private Route53 hosted zones and resolves other requests to public DNS
+- Only accessible from within VPC
+- VPC is launched with a default DHCP option set that sets the domain-name-server value to AmazonProvidedDNS (i.e. resolver at .2) and domain-name for each region (<ip>.<region>.compute.internal)
+- The default attributes for DHCP option set are:
+  - enableDnsSupport - true by default, queries AWS DNS server at 169.254.169.253
+  - enableDnsHostname - false for custom VPC, if true, assigns public hostname to EC2 if it has public IP
+  - Both these should be set to true to use custom DNS domain names in private zone
+- Resolving Hybrid DNS (i.e. bidirectional on-prem to AWS) using Modern solution:
+  - Use Route53 Resolver Endpoints
+  - Provides ENI in the VPC which are accessible over DX or VPN
+  - Inbound - On-prem forwards DNS requests to R53 resolver
+  - Outbound - Conditional forwarders for AWS to On-prem
+- Legacy solutions for resolving hybrid DNS scenarios:
+  - AWS can connect to on-prem DNS server by using DHCP option sets that point to on-prem DNS
+  - On-prem can use AWS DNS using SimpleAD which is AWS service that forwards requests to Route53 resolver.
+  - Bidirectional can be setup be setup by using a bind server DNS on an EC2 instance that forwards to Route53 and also has a Conditional forwarders to on-prem.
+
+  ### Network Concepts
+
+  - Bandwidth - max rate of transfer over Network
+  - Latency - delay between two points - these delays include processing as well as propagation delays
+  - Jitter - variation in inter-packet delays
+  - Throughput - rate of successful data transfer (bits/sec)
+  - Packets Per Second (PPS) - how many packets are processed per second
+  - MTU - Largest packet sent over the network
+    - most n/w support 1500 bytes
+    - jumbo frames are up to 9000 bytes
+    - AWS supports jumbo frames within VPC (9001 bytes) and within Direct connect
+    - Over the DX via Transit GW , it is limited to 8500 bytes -- same as VPC Endpoints
+    - traffic leaving IGW to internet or inter-region traffic is limited to 1500
+    - Using jumbo frames within EC2 cluster placement provides max nw throughput
+  - Network performance can be improved using:
+    - Cluster Placement Groups
+    - EBS Optimized instances
+    - Enhanced Networking
+      - Over 1M PPS
+      - High bandwidth by removing hypervisor out of the way
+      - Enabled with either of the ENA(100GBps) )or intel ixgbvef (10 Gbps) driver
+
+
+  ### Border Gateway Protocol
+
+  - Autonomous Systems (AS) - Routers controlled by one entity. Unique. The range is 64512-65534 are Private
+  - Operates at tcp port 179
+  - Path-vector protocol that it exchanges best path to a destination between peers. This best path is called ASPATH. By default, the focus is on best path and not on the link speed etc.
+  - iBGP is routing within an AS while eBGP is routing between AS.
+  - The routers within BGP network exchanges the routes with each other and append their ASN to the path before advertising.
+  - Since BGP prefers the shortest path routes even though this may be the slowest performance path, 'AS Path Prepending' can be used to artifically make the shortest path longer so as to make alternative path a preferred one if it has better bandwidth and link speeds.
+
+### Global Accelerator
+
+- Global Accelerator is designed to optimize the flow of data from users to AWS
+- Starts with 2 anycast IP addresses
+- Anycast IPs allow a single IP to be in multiple locations so that routing moves traffic to closest locations
+- Traffic initially uses public internet and enters global Accelerator edge location
+- from the edge location, the data transits across AWS global backbone network which offers better performance than public internet
+- Like CF although the difference is that CF moves your data closer to the customer by caching at a nearby edge location while global accelerator moves the network of AWS closer to the user.
+- Also global accelerator can be used for non-http/https protcols while CF only caches the HTTP and HTTPS
+- Also global accelerator is a network product, it does not cache anything or does not provide presigned URLs
+
+### VPC Connectivity
+
+- VPC Peering
+  - Connect two VPCs using AWS network
+  - Can be in same or different regions and can span accounts
+  - must have non-overlapping ranges
+  - route tables must be manually updated
+  - is not transitive
+  - Max 125 VPC peering connections per VPC
+  - data trasferred over VPC peering is encrypted
+- Transit Gateway
+  - Supports attachements to VPCs, VPN, DX, Peering with another TGW and third party nw appliances
+  - VPCs should not have overlapping CIDRs
+  - Supports trasitive routing
+  - Routes are propagates from VPCs to TGW. Static routes need to be added into the VPC route tables.
+  - While designing VPCs for TGW, generally speaking there should be workload subnets for applications and then dedicated connectivity subnets in each AZ for TGW.
+  - Typically /28 is used for connectivity subnets. After one AZ is enabled, traffic is routed to all subnets in that zone.
+  - Resources that resides in AZs where there is no TGW attachment cannot reach the TGW.
+  - TGWs are regional routers -- these can be peered across regions. Use unique ASNs as much possible. ALso note that on peering attachements, the route propagation does not happen, so use static routes instead. Upto 50 peering attachments per TGW can be used. Data is encrypted over peering connection.
+  - Various architectures are:
+    - Shared Services VPC: here IDS/IPS systems can be hosted in a centralized VPC and all inbound/outbound traffic can flow through it.
+    - centralized NAT GW can be deployed in a hub VPC which can be accessed by spoke VPCs.
+    - Blackhole routes in TGW route table can be used to restrict inter-VPC traffic.
+    - Basically various centralized architectures for providing outbound access, VPC endpoint access, firewall access etc.
+  - Hybrid Connectivity:
+    - Connect on-prem networks using a VPN attachment or DX with a TGW
+    - Transit VIF is used for connecting DX to TGW. The transit VIF is connected to the DX Gateway which is connected to the transit gateway as a TG attachment.
+  - TGW can be shared using Resource Access Manager (RAM) across AWS accounts
+- NAT instance
+  - NAT software on EC2 instances
+  - Speed based on EC2 size and type
+  - Disable source/destination checks
+  - SG and NACLs can be used
+  - Cost saving as they can act as bastion host
+  - Self managed and no longer recommended as Amazon Linux is EOL. Own custom HA solution can be implemented.
+- NAT Gateway
+  - Runs from a public IP and uses elastic IP which can't be changed.
+  - AZ resilient service.
+  - For region resiliency, deploy in each GW.
+  - 5 Gbps by default and Scales upto 45Gbps
+  - ErrorPortAllocation error can be monitored thru CW
+  - Can be secured using NACLs on the subnets. Can't have SG.
+- Route precendence:
+  - Longest prefix wins
+  - Static Route
+  - Propagated Routes
+    - DX
+    - VPN static
+    - VPN BGP
+    - AS_PATH
+
+  ### BYOIP
+
+    - Most specific address range that can be brought in AWS is /24 for IPv4 and /48 for IPv6 (publically advertised) or /56 IPv6 non-public advertised.
+    - You can bring upto 5 address ranges per region into your account
+    - You can't share IP address range with other accounts using RAM
+    - The process is:
+      - The IP owner should craetes an RSA AES256 private key which is securely kep and not Shared
+      - Corresponding public key is created
+      - Generates an x509 certificate signed with the private key having the commaon name set to the organization name.
+      - Public key is registered with Resource Public Key Infra (RPKI) which is maintained by Regional Internet Register (RIR). This establishes trust between IP range owner and RIR
+      - IP onwer creates a Route Origin Authorization (ROA) document which has the info of the IP range and who is authorized to advertise it (i.e. AWS on BGP ASNs 16509 and 14618). This ROA document is provided to RIR. RIR verifies the IP owner identity using public key and certificate. This allows AWS to advertise this range.
+      - IP owner updates the RDAP record for the IP range with appropriate IP certificate using a self signed certificate.
+      - When IP owner brings this range into AWS, an authorization message is created using the private key. AWS verifies this message with RIR using RDAP. The command is 'aws ec2 provision-byoip-cidr --cidr <range> --cidr-authorization-context Message="message".Signature="signature"
+      - Account owner runs the command 'aws ec2 advertise-byoip-cidr <range>' to advertise the address range
+
+  ### VPC Endpoints
+
+    - Allow to connect to AWS services using private NW instead of public network
+    - Endpoint services are horizontally scaled, redundant and highly available
+    - GW Endpoint:
+      - provisions a target which should be manually added in route Tables. The route table uses a prefix list.
+      - GW endpoint are associated with subnet association
+      - provide private access to S3 and DynamoDB
+      - HA across all AZs in a region across default.
+      - Endpoint policy is used to control what it can access. E.g. only certan S3 buckets Only
+      - Can't access cross-region service
+      - Private Leaky Bucket -- configure bucket policy to be accessed only by a specific gateway endpoint and deny from anywhere else.
+    - Interface endpoint:
+      -  provision an ENI and can be secured using SGs and NACLs.
+      - Endpoints can provide granular access using endpoint policies which can also be combined with resource policies such as Bucket policy etc.
+      - Unlike GW endpoints, these are not HA by default. These are added to speific subnets and provision an ENI in that subnet only. For HA, add one endpoint to each subnet per AZ.
+      - Controlled by SGs and endpoint policies
+      - Uses PrivateLink behind teh scenes
+      - Endoint provides a new service endpoint DNS - regional and zonal. PrivateDNS overrides the default DNS so your application will work the same way while accessing the endpoint services but instead of going over public internet, it would go thru the endpoint.  
+    - AWS PrivateLink:
+      - Exposes a customer application to 1000s of VPCs across same or diff accounts
+      - Requires a NLB in service VPC and ENI in customer VPCs
+      - In NLB and ENI are in multiple AZs, solution is fault tolerant. So in general as well, if you want HA solution, you must provide multiple endpoints.
+      - IPv6 isn't supported - only IPv4 and TCP is supported
+      - Private Link services can be accessed over the DX, Site-to-Site VPN and VPC Peering
+    - VPC Setting Enable DNS hostname and Enable DNS Support must be true.
+
+
+  ### Site to Site VPN
+
+  - IPSec
+    - setups secure tunnel across insecure nw
+    - authentication and encryption
+    - Two types on encryption:
+      - Symmetric - fast but challenging to exchange keys
+      - Assymmetric - slower but exchange keys is easy as it uses public-private key pair
+      - So strat with assymetric, exchange symmetric keys and then switch to symmetric encryption
+    - Two phases
+      - IKE Phase 1 - slow and heavy process, Authenticate, use Assymmetric encryption to exchange symmetric keys and Phase 1 tunnel is created
+      - IKE Phase 2: fast and light, Using the keys agreed in phase 1, agree on encryption method and created IPSec SA phase 2 tunnel    
+  - VIrtual Private Gateway (VGW)
+    - GW device between AWS and non-AWS networks
+    - Runs as a gateway device at boundary of VPC and Public Zone for S2S VPN and DX private VIF
+    - attached to 1 VPC at a time
+    - If migrated to new VPC, it maintains its connection
+    - Work with ASNs - 64512
+    - If used with CloudHub, the VGW can help create a mesh network between on-prem sites without those sites having any physical dedicated connection provided that each site has unique ASN and each site is terminated at same VGW.
+  - Uses port 500 for communication between the VGW at AWS Side and the CGW at customer Side
+  - Intead of VGW, we can use Transit GW as well
+  - Only 1 VGW can be connected to a VPC at a time. ALso, 1 VGW can be connected to multiple CGWs.
+  - Max bandwidth provided by VGW is 1.25 mbps. In case of multiple connections to CGW, the bandwidth gets divided. So in this case, TGW is a better option.
+  - VPN NAT Traversal
+    - Called NAT-T
+    - If your CGW is in the corporate network behind a NAT device then VGW adds a custom UDP header on top of the communication packet with CGW. This custom UDP header sents the packet to the NAT on port 4500.The NAT removes this header and forwards the packet to the CGW on the original port 500.
+  - VPN Route Propagation
+    - Static Routing:
+      - pre-defined CIDR ranges on both sides of VPN connection
+      - any new routes will need to be added manually
+    - Dynamic Routing - BGP
+      - Both ends learn new network changes automatically
+      - AWS side automatically gets the routes propagated in route tables.
+      - AWS route table can't have more than 100 routes. Consolidate the network ranges into a larger CIDR.
+      - Just need to specify the ASN of CGW and VGW.
+      - In case of static routing using in active-active tunnels, if traffic originates from customer network and goes to AWS, the VGW may use any of the two active tunnels for the return traffic. This may cause issues at customer side if there is a stateful firewall. This situation is called assymetric routing which should be enabled on the CGW to take care of this situation.
+  - VPC Transitive Routing
+    - VGW does not allow traffic from on-prem to be forwarded to IGW or Nat GW.
+    - Using NAT EC2 instance, we can have on-prem traffic via VGW can go to the internet thru IGW
+    - VGW also does not forward to VPC Peering or VPC Gateway Endpoint
+    - VGW can forward to VPC Interface Endpoint using ENI
+    - In case of dynamic routing using in active-active tunnels, assymetric routing situation can also happen but you can setup specific prefix on VGW side to send specific CIDRs on specific tunnels. This would mean that the return traffic would go back on the same channel.
+  - VPN Dead Peer Detection (DPD)
+    - detects the liveliness of the IPSec VPN connection
+    - AWS sends alive message every 10 sec and declares a peer dead after 3 unresponsive messages.
+    - Timeout actions can be clear the session, stop the channel, clear the routes or Restart the IKE or Take no action.
+  - VPN Monitoring
+    - Using CloudWatch, get some meterics from VGW such as TunnelState, TunnelDataIn and TunnelDataOut
+    - TunnelState - 0 means both down, 1 means both up and 0-1 means one of tunnels is down
+    - CW alarms can be created based on these metrics
+    - Personal Health Dashboard can also be used
+  - Site to Site VPN connections to VPN Hub
+    - Routing could be between multiple on-prem sites without connecting to AWS
+    - In this case, VGW operates in a detached mode i.e. not connected to any VPCs
+    - Each on-prem location must have unique BGP ASN with dynamic routing
+    - On-prem sites should not have overlapping CIDRs
+    - Upto 10 CGWs can be used
+  - Accelerated Site To Site VPN
+    - Normally S2S VPN has 2 IPSec tunnels between VGW and CGW over public internet. This offers variable and somewhat slower performance. An alternative is DX VIF but it is costly.
+    - Accelerated S2S VPN allows using Global Accelerator network to connect to the AWS network. So public internet is really only used to get to the latest global acclerator edge location. This architecture can only be used while creating a TGW VPN attachment and is not compatible with VPNs using VGW.
+  - Client VPN
+    - Managed AWS implementation of OpenVPN
+    - Allows clients to connect to VPCs using VPN
+    - Can access public internet thru the Client VPN if the VPC has NAT GW defined. Can also access peered VPCs
+    - By default, the client VPN routes are replaced at the client machine, so client can't access any local networks.
+    - An alternative is Split Tunnel where the client VPN routes get added to the client's routing table rather than replacing
+    - The client VPN can authenticate using certificates or federated or directory services
+
+### Direct Connect
+
+- Physical connection at 1, 10 or 100 GBps
+- AWS provides a physical port allocation at a DX locations. This port must be connected with single mode fibre and no copper is allowed. Auto-negotiation is disabled and both port-speed and full-deuplex must be manually enabled.
+- The allowed transceievers are:
+  - 1000BASE-LX (1310nm) - 1 GBps
+  - 10GBASE-LR (1310nm) - 1 GBps
+  - 100GBASE-LR4 - 100 Gbps
+- The cost associated is a port hourly cost and outbound data transfer
+- Low and consistent latency with high speeds
+- MACSec
+  - frame encryption - layer 2
+  - provides encryption for hop by hop layer-2 devices
+  - Provides confidentiality, data integrity, data origin authenticity and replay protection.
+  - It is not an end to end encryption standard like IPSec but mostly hop to hop encryption
+  - Must use a unidirectional secure channel with an identifier called Secure Channel Identifier (SCI)
+  - Modifies MACSec encapsulation by insertion 16 byte MACSec tag and 16 byte integrity check
+  - Used primarily between AWS DX Router in the AWS Direct Connect cage and the customer DX Router at a DX location or at on-prem location
+- Virtual Interfaces
+  - Since DX is a single physical connection, VIFs allows to run multiple layer-3 networks over the direct connect
+  - Virtual Interfaces are a combination BGP Peering Sessions and VLAN where BGP is used for authentication and route exchange while VLANs are used to provide isolation. Total of 50 private VIFs and 1 transit VIF can be configured on each physical DX
+  - Public VIFs
+    - Used to communicate to services that don't run in VPC or have public IPs if they do run in VPCs or services that work in AWS public zone such as SNS, SQS, S3
+    - can access all public zone regions across AWS global network over single public VIF
+    - YOu can advertise any public IPs you own over BGP  
+    - Public VIF and VPN:
+      - Encrypted and authenticated connection over DX
+      - This implementation uses public VIFs as the connection is being made to VGW/TGW public endpoints. Even though a public VIF is used, the connection created into the VPC is still private
+      - IPSec VPN does not compete with MacSec
+  - Private VIFs
+    - Used for services running in VPCs especially private IPs
+    - Generally associated with VGW which must be in same region in DX location.
+    - No encryption on private VIFs by default but application can layer encryption over HTTPS.
+    - Private VIFs can be terminated at VGW or Direct Connect gateway. The VGW has a limitation that it must be in same region as DX location.  
+    - Max 100 prefixes can be advertised over the Private VIFs
+    - Regarding BGP, the AWS ASN is configured on the VGW while the private ASN that you own must be configured on the VIF
+  - Transit VIFs
+    - integration with transit gateway and direct connect using DX gateway
+    - Only 1 transit VIF per DX connection is allowed
+    - Each transit gateway supports upto 3 TGWs
+    - The DX gateway can either be connected with private VIF or transit VIF and not both
+    - Note that DX gateway does not communicate between the attached transit gateways. A peering connection is still required for those.
+  - Bidirectional Forward Detection
+    - Improve failover time - lower is better
+    - BGP keep alives 30 seconds --- takes around 90 seconds to detect failover
+    - With BFP, failover is less than a second. Liveness detection is 300 ms and takes around 900 ms to detect failover
+    - AWS side BFP is enabled by default but customer side requires some config.
+  - BGP Communities:
+    - extra tags/metadata for advertised prefixes in BGP. Some common are:
+      - NO_EXPORT: Dont advertise to external preers
+      - NO_ADVERTISE: dont advertise to anyone
+    - regular communities are used to select where and what to advertise. There are used with ASN numbers. E.g. 9100 is local only, 9200 is continet or 9300 is global. No community also means global.
+    - So basically communities control how far the AWS shoud advertise our routes amd allows BGP admins to define rules for incoming prefix advertisements as well.
+  - DX gateway
+    - Direct Connect itself is a regional service. The DX gateway is a global device.
+    - So a private VIF is created to attach to the DX gateway in any region to integrate the on-prem network with AWS. Then the DX gateway can be associated with VGWs attached to VPCs globally.
+    - The DX gateway allows all VPCs in any region to communicate with the on-prem network. However the communication between the VPCs is not allowed on the same DX gateway.
+    - Each DX connection can have upto 50 private VIFs. Each private VIF can connect to 1 DX gateway meaning each DX connection can support upto 50 DX gateways. Each DX gateway can be associated with 10 VPCs. Meaning a single DX connection using DX gateway can connect up to 500 VPCs.
+    - Other AWS accounts can create AWS association proposal which can be approved by shared account DX gateway. In this case, the shared account owns the routing as well.
+  - DX Resiliency
+    - By default, there is no resiliency in DX implementation as by default, most connections are only single connection.
+    - The best approach is to use two DX connections to differnet DX locations which has two connections to customer routers which are connected to pair of two routers on-prem in two different customer locations.
+  - Link Aggregation Groups (LAGs)
+    - Multiple physical connections to act as one
+    - Either have 2 100GB ports or 4 less than 100 GB ports -- so max speed is 200 Gig ports
+    - do add some resiliency benefits but AWS does not really consider them
+    - Active/Active connections where all memebers must be with same speed config and should terminate at same DX location.
+    - benefit is speed and not resiliency
+    - minimumLinks attrobute means LAG is active as long as minimum number of links are active ( remember max is 4)
+
+
+### EC2 Networking
+
+- EC2 instances can have multiple ENIs as long as they are in same AZs. The ENIs can span across multiple subnets but has to stay within same AZ.
+- The SGs and NACLs are associated with ENIs and not with instances.
+- Secondary ENIs can be removed and added to another EC2 instance within same AZ.
+- Every instance has a private primary IPv4 address that stays for the instance lifetime because primary interface does not change.
+- Elastic IPs can be associated with the interface (primary or secondary) and can be moved across instances.
+- SRC/DST check means packet is dropped if the source or destination address is not on the package, it is dropped. This explains why it is disabled for NAT instance. This is also enabled/disabled on the interface level.
+- Each interface has a MAC address. Software license can be configured using MAC address and if the instance is no longer available, the interface can be moved to a new instance and the software will continue to be licensed since interface MAC does not change.
+- Enhanced Networking:
+  - SR-IOV - Single Route I/O virtualization
+  - generally in a virtualized environment, the VMs (i.e. instances) shared a physical NIC and the hypervisor mediates the access. This is a slow process. Ways to increase the speed are:
+    - Pass through or direct access where each VM is assigned a physical NIC. This does speed up performance but limits to migrate VMs to different hosts since they are tied to a physical NIC on a specific host. PCI passthrough allows VMs to communicate directly with NIC hardware using IOMMU bypassing the hypervisor layer.
+    - SR - IOV: Many VMs are tied to a NIC but allows for higher speed, PPS and lower CPU. Supported on almost all EC2. In this case, NICs are virtualization aware. These SRIOV devices offer physical functions and virtual functions (VFs) - the VFs are like lightweight devices offered by NICs which can be used independently without hypervisor. Upto 256 VFs can be offered per physical card.
+- Elastic Fiber Adapter (EFA)
+  - Type of nw interface for ec2 instances
+  - 1 per instance and can be attached at launch or while shutdown
+  - support OS Bypass for improving performance
+  - OS bypass: used for HPC or ML applications by bypassing the OS kernel and providing direct access to EFA interface. Uses MPI or NCCL
+  - OS bypass is single subnet rule and must have a security group needs to have self inbound and outbound rule. Since it is single subnet, it can't be routed as well.
+  - Normal non-OS bypass IP traffic can be cross subnet/AZ
+- Placement Groups
+  - Cluster: pack instances close together
+    - Used for high perfroamnce
+    - best practice is to use same type of instances and all launched together
+    - All are launched within same AZ, same rack and sometime same hosts
+    - Can acheive 10 gbps per stream vs 5 gbps which is normal
+    - Lowest latesnt and max PPS
+    - Should use Enhanced Networking
+    - Little to no resilience since all are located on same rack and same AZ
+    - Can span VPC peers but impacts performance
+  - Spread: Keep instances separated
+    - Ensure max availability and resilience
+    - Located in distant racks in same AZs and spread across multiple AZs
+    - Max 7 instances per AZ
+    - provides infra isolation i.e. each instance is on separate rack with their own power supplies etc
+    - Use case: small number of critical instances
+  - Partition: Groups of instances spread apart
+    - Similar to spread but you need more than 7 per AZ
+    - You specify number of partitions - max 7 per AZ
+    - Each partition is on separate rack
+    - Unlimited number of instances per partition
+    - Designed for huge scale applications such as HDFS, HBase, Cassandra
+    - You can see which instance is in which partition and insatcnes can be placed in specific partitions or auto placed
+  - Instance Metadata
+    - Data about EC2 instance. Accessible within all instances. http://169.254.169.254/latest/meta-data is the URL to get this instance data
+    - Provides info about environment of the instance including networking, authentication, user-data
+    - This is not authenticated and not encrypted
+
+### Network Automation
+
+- CloudFormation - based on templates in YAML or JSON that defined the logical resources which subsequently defined physical resources. This template is used to create a Stack.
+- Parameters accept input such instance type etc. Default, Allowed Values/Patterns, Max length, NoEcho or Type attributes can be defined.
+- Pseudo Parameters: made available by AWS. Example: AWS::Region, StackId, AccountId, StackName
+- Intrinsic Function: Get access to data at runtime.
+  - Ref and Fn:GetAtt to reference a parameter
+  - Fn::Join and Fn::Split
+  - Fn:GetAZs. Fn::Base64, Fn::Sub, Fn:Cidr and more
+- Mappings
+  - mapping object maps keys to Values
+  - Used Fn::FindInMap
+- Outputs:
+  - Optional section
+  - Declare values that are visible in console UI, cmd line or parent stack
+- Conditions
+  - define logical workflow based on certain Conditions
+  - evaluated before resources are created
+  - Uses AND, EQUALS, IF, NOT, OR
+- DependsOn
+  - explicitly define dependencies between two resources
+  - Common example: Elastic IP requires an IGW attached to a VPC in order to work. Since there is no depenedency in the template, DependsOn is used to enssure Elastic IP is only created after Internet Gateway is attached to the VPC.
+- Nested Stacks
+  - All resources shared in a single stack have same lifecycle. Also one stack can only have up to 500 resources.
+  - Can't reference other stacks
+  - Can't easily reuse resources defined in a big single stack
+  - In Nested Stack, a root stack gets created first. The root stack can create several nested stacks.
+  - You can only reference outputs of the nested stacks. These outputs can be used as parameters in other nested stacks.
+  - This process really breaks up a big stack into modular reusable stacks.
+- Cross Stack References
+  - Stacks by design are self contained and isolated.
+  - Cross Stack references allow you to reference the output from one stack into another. The output can be exported making them visible from other stacks. The export name must be unique inside one region.
+  - Fn::ImportValue can be used
+
+### Elastic Load Balancing
+
+- Split between v1 (not used anymore) and v2
+- Each ELB is created with an A record which resolves to all ELB nodes which are located within each AZ selected while creating ELB.
+- Note: For a public facing internet, the ELB must be placed in public subnets. However, the instances can be in public or private subnets i.e. internet facing LB nodes can access public and private EC2 instances.
+- ELB must need 8 or more free subnet IPs and a /27 or larger subnet (even though /28 subnet should be enough but AWS doc suggest to use /27)
+- Cross Zone LB is used to even out distribution by allowing ELB node in one AZ to distribute connections in any other AZ. It is enabled by defaut for ALB.
+- ALB can use multiple SSL certificates while the CLB only allowed one.
+- ALB:
+  - Layer 7 -- only for HTTP and HTTPS, no other layer-7 protocol
+  - layer 7 type of content such as cookies, custom headers, location and app behavior
+  - SSL/TLS for HTTPS is always terminated on the ALB - it does not go all the way to the application, so if HTTPS is used, SSL certs must be installed at ALB.
+  - ALB are slower than NLB
+  - ALB can evaluate application health at L7
+  - ALB rules direct how connections are established. Processed in priority order and has a default rule. Can be based on path pattern, query strings, headers.
+  - can perform authentication
+  - the connection from the user is terminated at the ALB and a new connection to the backend is initiated. This means single encrypted connection is not kept end to end.
+- NLB:
+  - Layer 4 protocol - TCP, TLS, UDP, TCP_UDP
+  - no visibility of HTTP/HTTPS, headers, cookies, session stickiness
+  - Very fast
+  - Health checks are ICMP and TLS handshake which are not application aware
+  - Can have static IPs
+  - Forwrad TCP to instances and therefore offers unbroken end to end encryption
+  - Used with private link to provide services to other VPCs
+- Connection Draining
+  - Allows in-flight requersts to complete before no new connections will be sent to unhealthy instance.
+  - Connection Draining is only for CLB
+  - Timeout is between to 1 and 3600 seconds.
+  - AutoScaling waits for connection draining Timeout
+- Deregisteration delay
+  - Supported for ALB, NLB and GWLBs
+  - Defined on the target group and not on LB
+  - Allows to stop sending new requests to the deregistering targets and lets existing connection continue until they complete or the deregisteration delay is reached naturally
+  - Default delay is 300 seconds
+- X-Forwarded and Proxy protocol
+  - Used for gaining visibility into original clients address when using proxy or ELBs.
+  - X-Forwarded-For: HTTP header, L7, this header is added or appended by proxies/LBs and the original client is always the firts value on the left. It is supported for CLB and ALB
+  - Proxy: Layer 4, additional tcp header, works with CLB as v1 and NLB as v2. Used in instances such as unbroken encryption flow, unbroken tcp connection
+- Gateway LoadBalancers
+  - GWLB enables to deploy, scale and manage virtual appliances such as firewalls, IDS, IPS and deep packet inspection systems. Basically allows you to use fleet of security appliances and scale these as needed.
+  - These devices can be used inbound and outbound traffic inspection. GWLBs help you run and scale 3rd party appliances.
+  - GWLB endpoints - traffic enters and leaves via these endpoints. These are like VPC endpoints but it can be added to route table. Similar to S3 GW endpoint.
+  - GWLBs - balances traffic across backend. So when traffic enters the GWLB EP, it is routed by the GWLB to the horizontally scaling security endpoints using the GENEVE protocol. Original packets remain unaltered before and after being analyzed by these security appliances
+  - Establishes flow stickiness
+  - Common architectur is having an application VPC where the application is hosted and a security VPC. In the application VPC, the GWLB EP are configured to send packets that are recieved from the clients to the GWLB in the security VPC which encapsulates original packet and forwards to security appliances. Upon analysis by the security appliances, the packets are returned by the GWLB to the GWLB EP which then forwards to the GWLB ALB. Same flow is followed back to client.
+
+
+  ### Route 53
+
+  - Public Hosted Zones: DNS Database hosted by Route53 on public name servers. Accessible from public internet and VPCs. Creating public hosted zone in AWS Route53 creates 4 nameservers which are accessible from the internet as well as from the VPCs using resolver endpoints.
+  - Private Hosted Zone: instead of public, only accessible by VPC with which it is associated with.
+  - Split view/horizon means combining public and private hosted zones for internal and public access.
+  - CNAME and Aliases:
+    - A record maps name to an IP addresses
+    - CNAME maps name to another name i.e. create aliases - this is invalid for naked/apex (i.e. yahoo.com)
+    - With just CNAME, yahoo.com maps to ELB will be invalid. But www.yahoo.com to ELB will be valid.
+    - However, A or Alias records can be used for naked/apex as well.
+    - Use A record when using API GW, CF, EBS, ELB, S3 and Global Accelerator.
+  - Health checks
+    - These are not supported by simple routing
+    - Performed by health checkers located globally, by default checks happen every 30 sec
+    - TCP, HTTP/HTTPS checks (also can perform with string matching where the string must appear in first 5120 bytes of the responses)
+    - Checks can be Endpoint Checks, CloudWatch Alarm or Check of Checks (calculated checks)
+  - Multi value records
+    - Allows multiple IP or endpoints to be associated with a DNS records
+    - Each of the endpoint is health checked
+    - When client queries, upto 8 healthy endpoints are returned to the clients
+    - The client picks any one of the healthy record
+    - It increases availability but it is not a substitute for load balancing
+  - Weighted Routing
+    - Each record is assigned a certain weight
+    - When client queries, each record is returned based on its weight in percentage.
+    - Used for testing new software etc or very simple loadbalancing
+  - Latency Based routing
+    - Used when optimizing for performance and user experience
+    - AWS maintains a database of users general location and region tagged in the DNS record. The record with the lowest latency is selected and returned to the user.
+    - Supports one record for the same name in each region
+  - Geolocation Routing
+    - Similar to latency but records are returned based on the user location
+    - Records can be tagged as US State, Country, Continent or optionally as default
+    - Geolocation does not return the closest record - it returns the relevant record
+    - First US state is checked, then country, then continent and if nothing matches, a default record is returned if it is configured otherwise NO ANSWER is returned.
+    - Again, does not return the closest record, returns relevantly tagged record.
+  - GeoProximity Records
+    - Provides the record with the closest distance of the user
+    - Resources are tagged with either AWS region or lat and long coordinates
+    - A bias for the records can be defined where '+' increases the coverage area of a record while '-' decreases the coverage area.
+    - This can be used to influence users from a specific region connect to the record from a particular region with increased bias even though it may be closer to another record by physical distance but which may have reduced bias
+  - Inter Operatability
+    - Route53 has two distinct functions - domain registrar and domain hosting. Both these functions can be performed together or alone.
+    - So when you register the domain thru Route53, it accepts the payment and then creates 4 nameservers along with a zone file where records can be added. This is the domain hosting part. Once that is done, the domain along with the nameservers is communciated to the Top Level Domain (TLD) registry and that is considered to be the domain registrat part.
+  - Hybrid Architecture for DNS
+    - The DNS is configured in each VPC at the VPC + 2 address.
+    - Every second address in each subnet is also reserved for the DNS and is called Route53 Resolver. Historically, these Route53 resolvers can forward queries to public DNS but not to the on-prem DNS servers. Similarly the on-prem DNS server also could not reach these Route53 resolvers to resolve the AWS private VPC based hostnames. Therefore a DNS boundary existed between AWS and On-prem networks.
+    - Before Route53 Endpoints, the solution was to have a DNS forwarder in the VPC. Any requests that arrive to this DNS forwarders are forwarded by default to the Route53 resolver and to the on-prem DNS resolvers for any selective domains. Similary the DNS resolver at the on-prem network can also forward requests to the DNS forwarders within the AWS VPC.
+    - This resolver endpoint is accessible from within VPC only - not from on-prem or direct connect etc.
+    - Route53 Endpoints:
+      - VPC Interfaces ENIs in various subnets
+      - Accessible over VPN or DX
+      - Inbound Endpoint: On-prem can forward to the Route53 resolver to access AWS Resources by sending the requests over DX or VPN to the Inbound Endpoint Interface IPs
+      - Outbounds: Conditional forwarder to on-prem for certain domains.
+      - Rules control what requests are forwarded
+      - These endpoints have unique addresses, so these can be whitelisted
+      - These endpoints are highly available and can scale
+
+### Cloud Delivery Network (CDN)
+
+- Origin:
+  - Can be S3 Origin or any other origin that can host website
+  - One or more origins are required
+- Distribution:
+  - Configuration within CDN is referred as distribution
+- Behavior
+  - Sub config between distribution. Origins are linked to behaviors.
+  - There is always a catch all default behavior.
+- Edge location
+  - Local caches distributed globally
+  - generally 90% storage and rest is compute
+- Regional Edge cache
+  - Larger version of edge location cache
+  - provides another layer of caching
+  - one regional edge cache generally supports multiple local caches
+  - Only custom origins can use regional edge cache - e.g. S3 origins can't use regional edge cache
+- CF is read only cache. It does not do write caching.
+- TTL and Invalidations
+  - The objects expire at edge locations after a set time. Once expired, these are not immediately discarded. If a request comes on, the edge location checks the origin for this expired object. If the origin object is same as edge location, HTTP 304 - NOT Modified is returned to the user along with the object. If the object is not current and origin has a updated version, HTTP 200 OK is returned to the user with newer object.
+  - The default time for objects cached on edge locations is 24 hrs.
+  - various headers are:
+    - Cache-Control max-age (seconds): Applies TTL value to specific headers
+    - Cache-Control s-maxage (seconds): Same as above
+    - Expires (Date and Time)
+  - In addition, there is minimum TTL and max TTL specified on the behavior. Those values will take precendence over any object TTL value. These act as delimiters.
+  - Cache Invalidations:
+    - immediately expires an object on a distribution
+    - Can use wild cards
+    - Takes time to propagate
+    - Should be done to correct errors etc.
+    - If you are frequently invalidating cache, use _v1, _v2 in filenames. These new versions will be updated in the application so that no caching invalidation is used. Logging and monitoring is better in this case as well.
+    - Better to perform bigger invalidations infrequently than smaller invalidations frequently.
+- ACM:
+  - Lets you run a public or private certificate authority (CA)
+  - can generate or import certificates
+  - generated certificates are auto renewed
+  - certificates can be deployed to supported services only such as CF, LBs. Note: EC2 is not Supported
+  - regional service - any certificates generated in a region are available for use in only that specific region
+  - Always use 'us-east-1' region for CF certificates or for any global service
+- SSL
+  - Each CF distribution has a name including cloudfront.net
+  - Alternate Domain Name feature can be used to point this cloudfront distribution to a custom name
+  - For implementing HTTPS, we need to import a certificate (such as using ACM)
+  - various approaches are: both HTTP and HTTPS, redirect HTTP to HTTPS and finally HTTPS only.
+  - There are two connections:
+    - Between viewer and CF - called viewer protocol or viewer connection. The cert has to be publically trustable for this communication.
+    - Between CF and origin - Origin protocol
+- SNI - Server Name Indication
+  - It is a TLS handshake that allows the host header to be made available during TCP handshake
+  - This is useful because the edge location can confirm which website is being requested. useful for cases where multiple websites are hosted on a single server.
+  - The SNI features allows many SSL certifcates for different websites on same public IP
+- CF now supports real time logs to Kinesis data streams
+- CF can also compress objects which can improve the performance
+- While configuring the distribution, WAF can be added as well as ACM certs can be added.
+- Security
+  - OAI - Origin Access identity
+    - Only applicable to S3 when not being used as a static website
+    - It is a type of identity which is associated with CF. The CF becomes that 'OAI' and can be included in bucket policies for access control.
+    - Best policy is Deny all and only allow OAI
+  - Custom origins
+    - For securing non-S3 origins, custom headers can be used.
+    - Viewer protocol and origin protocol policies can be configured
+    - in this case, the origin is configured to expect a custom header for all the requests. This custom header is added at the edge locations. So any request that does not have this custom header is proved to be coming from a non-edge location and therefore is denied.
+    - Since HTTPS is encrypted, no one can figure out what that custom header is.
+    - Another approach is to be use a firewall at the origin which only allows connections from IP addresses association with edge locations.
+
+
+### Network Security, Risk and Compliance
+
+- S3 Access Points
+  - Allows to create many access points with differnt policies associated with the same bucket.
+  - Each access point have its own dedicated endpoint address which can be used instead of the bucket endpoint
+  - Access points can be set for internet origin or a VPC origin
+  - Access point policies are functionally similar to bucket policies.
+  - Access Point policies can be accessed from the VPC using the VPC Endpoints
+  - Any policies defined on the access points must also be defined at the bucket level. Most common approach is to define a wide policy at the bucket level for the access point and then make it granular at the access point level.
+- CloudTrail
+  - Logs API action (almost everything)
+  - by default, stores 90 days.
+  - Events can be management or data events.
+  - Regional service -- trail can be one region or all region trail.
+- AWS Shield
+  - Protects against DDoS
+  - standard (free) and advanced
+  - there is a sheild mini as well but standard protects various common attacks
+  - With CF and Route53, standard can protect against layer3 and 4 attacks as well
+  - Additional Advanced integrations are EC2, Global Accelerator, ELB
+  - Advanced provides financial insurances
+- WAF
+  - Layer 7 firewall
+  - protects against application attacks like SQL injection, Geo blocks, rate awareness and cross site scripting
+  - Uses Web ACL with ALB, API GW and CF. Rules are added to web ACL and evaluated when traffic arrives
+- AWS Config
+  - Record changes over time within AWS account
+  - great for auditing changes
+  - does not prevent the non-compliant changes from happening, just reports it
+  - changes can generate SNS
+  - A config item is created everytime a resource config changes
+  - config history is stored in S3 bucket
+  - Config rule changes can be tracked in EventBridge which can trigger lambda function that can remediate the changes
+- CloudHSM
+  - Behind the scenes, KMS also uses HSM
+  - HSM is level 3 compliant (140-3)
+  - KMS is level 2 compliant
+  - CloudHSM is accessed using AWS APIs, it uses industry standards
+  - KMS can use CloudHSM as a store as well
+  - CloudHSM is not integrated with various AWS services
+- Macie
+  - Discovers PII, PHI and financial data from S3 buckets
+  - Uses data identifier - managed vs custom
+- Inspector
+  - designed to check EC2 and OS running on the EC2 to detect vulnerabilities
+  - Proides a security assessment
+  - The nw assessment is agentless while the host assessment requires an agent
+  - Agent can provide additional OS visibility
+
+### Misc Services
+
+- Microsoft AD
+  - Built using Microsoft Active Directory 2012 R2 and supports group policy and single sign-on.
+  - Integrates with Sharepoinyt, SQL etc.
+  - Used for AD Authentication/Authorization of products and services within aws
+  - standard supports 30k objects while extended support 50k
+  - only type that supports one-way and two-way external and forest trusts with on-premisis AD
+  - only type that supports schema extension
+  - So if any connectivity is lost between between on-prem and AWS, the AWS side AD still functions if set as AWS Managed AD. This is not the case with AD connector.
+  - Best choice for 5K users if trust relationship between AWS and on-prem directory service is required.
+- AD Connector
+  - Pair of directory endpoints running in AWS (ENIs in VPC)
+  - No directory data is stored in AWS
+  - Use existing on-prem AD with services in AWS that are directory-compatible
+  - Two types - small and large -- depending upon the compute
+  - Requires 2 subnets in 2 AZs
+  - Can't function if network connectivity is broken with on-prem  
+  - Easy to implement
+- Workspaces
+  - Desktop As A Service
+  - consistent desktop from anywhere and maintains state
+  - Uses directory services (Simple, AD, AD Connector)
+  - USe an ENI in a VPC
+  - At-rest encryption
+  - Workspaces and directory services run in AWS managed VPCs but inject an ENI into customer managed VPCs like EKS
+  - Not HA by design as these are in a single subnet/AZ
+- FSx
+  - Fully managed native windows file server/share
+  - Integrates with windows and DS or self managed AD
+  - SIgle or multi AZ
+  - Accessible using VPC Peering, VPN, Direct Connect
+  - Supports de-duplication, DFS, KMS at-rest encryption and enforced encryption in-transit
+  - Accessed via SMB
+  - Perfroamcne from 8 MB/s to 2 GB/s and can scale upto 100k IOPS
+  - VSS: User-Driver Restores without calling the admin
+  - Windows permission model
+- Storage Gateway - Volume Gateway
+  - Normally runs as VM on-prem although hardware appliance can be ordered as well
+  - locally on-prem it presents storage as iSCSI, NFS or SMB and on the AWS side it integrates with EBS, S3, Glacier
+  - Used for migrations, extensions, storage tiering, DR and backup system replacements
+  - Stored Mode:
+    - Volumes are presented similar to the NAS device.
+    - Everything is stored locally on-premisis
+    - There is upload buffer from where content is asynchronously uploaded to the storage gateway endpoint to create EBS snapshots
+    - Great for full disk backups of servers
+    - Assists with DR to create EBS volumes in AWS
+    - Provides low latency access to the data since it is stored locally
+    - Doesn't provide data extenstion of capacity
+    - Can have 32 volumes per gateway with each volume upto 16 TB and therefore 512 TB per gateway
+  - Cached Mode
+    - Still have local service and still communicating with Storage GW endpoint on public endpoint
+    - Primary storage is on S3 instead of local storage
+    - The S3 bucket is only accessible from the storage gateway
+    - The local storage is frequently accessed cache data
+    - This allows for data storage extension
+    - Comparitive slower than stored mode
+    - 32 volumer per gateway with each volume upto 32 TB so total 1 PB per gateway  
+- Storage Gateway - Tape Gateway (VTL)
+  - LTO media is type of Tape used for backups upto 60TB compressed
+  - Data stored on tape is accessed linear designed for write as whole or read as whole
+  - Traditionally servers used to connect to tape library using iSCSI
+  - Using Storage GW in Tape mode, the tape drive is still presented as iSCSI that looks like a normal tape library. However, it has a upload buffer and local cache like vol gw in cached mode. The VTL is hosted in S3 and tape shelf is stored in Glacier for archiving tapes.
+  - Virtual tape is 100 GB to 5 TB and 1 PB of data across 1500 virtual tapes can be stored thru storage gateway
+  - Can be used to maintain and extend backup system
+- Storage Gateway - File Gateway
+  - manages files and bridges file storage over mount points (Shares) using NFS and SMB with S3
+  - map directly to S3 bucket in your account that you manage
+  - Read and Write caching
+  - Each fileshare on the on-prem map to an S3 bucket on AWS - S3 objects are visible on the fileshare and vice-versa
+  - The directory structure is preserved in S3 bucket
+  - Primary data is in S3 while local storage is used as cache
+  - Any AWS integrations supported by S3 can be done
+  - 10 bucket shares per file gateway
+  - Use the NotifyWhenUploaded API to notify other gateways when objects are changed
+  - Two customer sites can be used on-prem to access same S3 buckets. NOte that file gateway does not supprt object locking, so either use read-only mode on other shares using same S3 bucket or tightly control file access
+  - Cross Region Replication and S3 lifecycle events can be used
+
+### Cost Management
+
+- VPC peering
+  - Same-AZ data transfer between peered VPCs is free
+  - Data transfer charges across peered VPCs in different AZs has ingress and egress charges for both VPCs
+  - Data transfer charges across peered VPCs in different regions only have egress charges from each region
+- VPC traffic
+  - Internet Gateway
+    - Data out to internet has a charge. Data in from internet is free.
+    - Data transfer between regions for AWS public services thru IGW has a charge.
+    - Data transfer to same region public AWS services is free
+    - Data transfer from public EC2 to IGW is free
+  - NAT GW
+    - hourly cost
+    - Data transfer from instance has a charge.
+    - More charge if data is transferred in AZs
+    - Data transfer to IGW is free
+  - Availability Zones
+    - Genrally same AZ data transfers are free
+    - Some services like RDS does not charge for cross region replication
+    - For some services like EC2 and RDS, cross AZ charges apply for both inbound and outbound
+    - if two EC2s in same AZs communicate over public IPs charges apply since traffic leaves AZ to go thru IGW
+  - Transit Gateway
+    - Hourly charge per attachement billed to account owner of the attachments (like VPC)
+    - Per GB data transfer sent from the attachment owner is charged to the account owner
+    - Data sent from the TGW to attachments is free within same region
+    - Peering cost for two TGW is billled on both sides
+    - Data sent from a TGW tp another across regions is billed on the sender side
+  - Direct Connect
+    - DX port has hourly fee based on speed and location in the DX location
+    - Data transfer OUT from the VPCs has a per GB has a charge
+    - Data transfer IN to the VPCs from the DX is free
+    - DX GW is a free service to get provisioned
+    - Any outbound traffic destined to the DX GW is charged per GB
+
+  ### Disaster Recovery
+
+  - Backup and Restores
+  - Pilot light
+  - Warm Standby
+  - Active/Active or Multi Site
+
+  ### Network resiliency
+
+  - VPCs are regionally resilient meaning that complete region failure will cause VPC failure
+  - Subnets are AZ resilient i.e. these are in 1 AZs
+  - ELBs are regional products as they have LB nodes in 2+AZs, so LB is functional as long region has not failed 
+  - Public Services like S3, SNS are also region resilient 
+  - To make application resilient across AZs, provision multiple subnets in distinct AZs behind a LB 
+  - To allow multi region resiliency, we can deploy app in multiple regions and each regional endpoint can be health checked using Route53. 
+  
