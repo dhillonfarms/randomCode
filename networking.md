@@ -778,3 +778,23 @@
   - To make application resilient across AZs, provision multiple subnets in distinct AZs behind a LB 
   - To allow multi region resiliency, we can deploy app in multiple regions and each regional endpoint can be health checked using Route53. 
   
+### Workshop links
+
+- [Networking Immersion Day](https://networking.workshop.aws/)
+- [Network Firewall Workshop](https://networkfirewall.workshop.aws/)
+- [Network Fireall Hands On](https://catalog.us-east-1.prod.workshops.aws/workshops/d071f444-e854-4f3f-98c8-025fa0d1de2f/en-US)
+- [Protecting workloads from instance to edge](https://protecting-workloads.awssecworkshops.com/workshop/)
+- [Finding and addressing network misconfigurations](https://validating-network-reachability.awssecworkshops.com/)
+- [Disaster Recovery with Route53](https://catalog.us-east-1.prod.workshops.aws/workshops/4d9ab448-5083-4db7-bee8-85b58cd53158/en-US/)
+- [Secure Hybrid Access to S3 using VPC Endpoints](https://catalog.us-east-1.prod.workshops.aws/workshops/3a8d4ddf-66c5-4d26-ae6f-6292a517f46c/en-US)
+- [Implementing DDoS Resiliency](https://catalog.us-east-1.prod.workshops.aws/workshops/4d0b27bc-9f48-4356-8242-d13ca057fff2/en-US)
+- [VPC FLow Log Analysis](https://catalog.us-east-1.prod.workshops.aws/workshops/31add0d8-bff3-441d-ae65-ed74106a5cb5/en-US)
+- [Encryption on AWS](https://catalog.us-east-1.prod.workshops.aws/workshops/aad9ff1e-b607-45bc-893f-121ea5224f24/en-US)
+- [Disaster Recover on AWS](https://disaster-recovery.workshop.aws/en/)
+- [Highly Available WebApp](https://catalog.us-east-1.prod.workshops.aws/workshops/5ceb632a-c07f-44a5-a3bd-b8f616a631c0/en-US)
+- [Volume Gateway Performance](https://catalog.us-east-1.prod.workshops.aws/workshops/82e34448-2525-4bca-b8e5-0de3710f71ce/en-US)
+- [Highly Available Web Application](https://catalog.us-east-1.prod.workshops.aws/workshops/3de93ad5-ebbe-4258-b977-b45cdfe661f1/en-US)
+- [AWS WAF Workshop](https://catalog.us-east-1.prod.workshops.aws/workshops/c2f03000-cf61-42a6-8e62-9eaf04907417/en-US)
+- [Implementing Health Checks](https://wellarchitectedlabs.com/reliability/300_labs/300_health_checks_and_dependencies/)
+- [Improve Architecture with CloudFront](https://catalog.us-east-1.prod.workshops.aws/workshops/4557215e-2a5c-4522-a69b-8d058aba088c/en-US)
+- [Understanding IPv6](https://catalog.us-east-1.prod.workshops.aws/workshops/b00fe7a8-bf40-47b9-b986-fbb3ef4bd27f/en-US)
