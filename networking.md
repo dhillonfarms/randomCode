@@ -40,7 +40,8 @@
 - VPC Secondary Blocks
   - Secondary CIDR blocks can be added to the VPC
   - The secondary CIDR block must not overlap with existing CIDR or peered VPC CIDR
-  - If primary CIDR is from RFC1918, then secondary should also be from same RFC1918 CIDR range or public range
+  - If primary CIDR is from RFC1918, then secondary should also be from same RFC1918 CIDR range and not from the remaining two CIDR ranges. Or you can use 100.64.0.0/16 range or any public IP range. 
+  - If primary CIDR range is 100.64.0.0/16 or public, then only non-overalpping public anges are allowed. 
   - CIDR block must not be same or larger than CIDR blocks of any of the routes in VPC Route tables
   - Can have total 5 IPv5 and 1 IPv6 CIDR block for VPC
 - VPC Flow logs
