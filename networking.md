@@ -30,6 +30,13 @@
   - NAT GW must be created in public subnet.
   - NAT GW does not have SG, so traffic must be controlled thru NACLs
   - Source/Destination checks must be disabled for NAT instances
+  - NAT gateways support up to 55,000 simultaneous connections to each destination per minute. If this threshold is crossed, new connections to that destination fail and the ErrorPortAllocation metric for the NAT gateway increases in Amazon CloudWatch.
+  - To resolve port allocation errors, you can do the following:
+    - Create a NAT gateway in each Availability Zone, and then distribute your clients across Availability Zones. Route traffic to the internet using a NAT gateway in the same Availability Zone as your client to reduce cross Availability Zone data charges.
+    - If you noticed an increase in the IdleTimeoutCount metric in CloudWatch, configure your application or private instance to close idle connections so the NAT gateway can allocate the source port to new connections.
+    - Limit the number of connections that your clients can make to a single destination.
+    - If traffic is going to an Amazon Simple Storage Service (Amazon S3) or Amazon DynamoDB public IP in the same Region, use a gateway VPC endpoint instead of a NAT gateway. There are no data processing or hourly charges for using gateway VPC endpoints.
+    - If traffic is going to a public IP for an AWS service that supports interface VPC endpoints, use an interface VPC endpoint instead of a NAT gateway.
 - VPC Secondary Blocks
   - Secondary CIDR blocks can be added to the VPC
   - The secondary CIDR block must not overlap with existing CIDR or peered VPC CIDR
@@ -187,6 +194,9 @@
       - Endpoint policy is used to control what it can access. E.g. only certan S3 buckets Only
       - Can't access cross-region service
       - Private Leaky Bucket -- configure bucket policy to be accessed only by a specific gateway endpoint and deny from anywhere else.
+      - Does not allow access from on-prem
+      - Does not allow access from another AWS account
+      - Not Billed
     - Interface endpoint:
       -  provision an ENI and can be secured using SGs and NACLs.
       - Endpoints can provide granular access using endpoint policies which can also be combined with resource policies such as Bucket policy etc.
@@ -194,6 +204,9 @@
       - Controlled by SGs and endpoint policies
       - Uses PrivateLink behind teh scenes
       - Endoint provides a new service endpoint DNS - regional and zonal. PrivateDNS overrides the default DNS so your application will work the same way while accessing the endpoint services but instead of going over public internet, it would go thru the endpoint.  
+      - Allow access from on-prem
+      - Allow access from VPC in another AWS region using VPC Peering or AWS TGW.
+      - Billed
     - AWS PrivateLink:
       - Exposes a customer application to 1000s of VPCs across same or diff accounts
       - Requires a NLB in service VPC and ENI in customer VPCs
@@ -281,21 +294,60 @@
   - 100GBASE-LR4 - 100 Gbps
 - The cost associated is a port hourly cost and outbound data transfer
 - Low and consistent latency with high speeds
-- MACSec
-  - frame encryption - layer 2
-  - provides encryption for hop by hop layer-2 devices
-  - Provides confidentiality, data integrity, data origin authenticity and replay protection.
-  - It is not an end to end encryption standard like IPSec but mostly hop to hop encryption
-  - Must use a unidirectional secure channel with an identifier called Secure Channel Identifier (SCI)
-  - Modifies MACSec encapsulation by insertion 16 byte MACSec tag and 16 byte integrity check
-  - Used primarily between AWS DX Router in the AWS Direct Connect cage and the customer DX Router at a DX location or at on-prem location
+- Requirements are:
+  - Auto negotiation must be disabled. Port Speed and Full duplex to be set manually
+  - The on-prem router must support BGP
+  - 802.1Q used for segragating traffic on same physical link, so 802.1Q encapsulation must be supported
+  - Public or Private ASN can be used  
+- Encryption in DX
+  - By default, DX traffic is not encrypted
+  - Ideally setup level 4 (TLS) encryption at hosts communicating over DX.
+  - MACSec - Layer 2 encryption
+    - frame encryption - layer 2
+    - provides encryption for hop by hop layer-2 devices
+    - Provides confidentiality, data integrity, data origin authenticity and replay protection.
+    - It is not an end to end encryption standard like IPSec but mostly hop to hop encryption
+    - Must use a unidirectional secure channel with an identifier called Secure Channel Identifier (SCI)
+    - Modifies MACSec encapsulation by insertion 16 byte MACSec tag and 16 byte integrity check
+    - Used primarily between AWS DX Router in the AWS Direct Connect cage and the customer DX Router at a DX location or at on-prem location
+  - VPN IPSec over DX - Layer 3 encryption
+    - Must have Public VIF
+    - PUblic VIF used to connect to Public IP of AWS VPN using VGW or TGW.
+    - Limited by bandwidth of VGW i.e. 1.25 Gbps, so instead use TGW that does not have 1.25 GBps BW.
 - Virtual Interfaces
   - Since DX is a single physical connection, VIFs allows to run multiple layer-3 networks over the direct connect
-  - Virtual Interfaces are a combination BGP Peering Sessions and VLAN where BGP is used for authentication and route exchange while VLANs are used to provide isolation. Total of 50 private VIFs and 1 transit VIF can be configured on each physical DX
+  - Virtual Interfaces are a combination BGP Peering Sessions and VLAN where BGP is used for authentication and route exchange while VLANs are used to provide isolation. Total of 50 private VIFs and 1 transit VIF can be configured on each physical DX.
+  - You must provision VIFs over physical connection. Basically VIF is a config consisting primarily of an 802.1Q VLAN.
+  - So basically your on-prem traffic to the DX location can be tagged with unique VLANs. The same VLANs will be used over the private or public VIFs to route the traffic as appropriate.
+  - VIF Parameters
+    - Needed either hosted or dedicated DX connection or LAG
+    - Type (Public or Private or Transit)
+    - Name
+    - Owner (Your AWS account or other AWS account for a hosted VIF)
+    - Gateway Type (only for Private VIFs) i.e. VPG or DX GW
+    - VLAN ID
+      - Should not be duplicated over same DX connections
+      - Range 1 - 4094
+      - For hosted connections, VLAN ID is configured by partner
+    - BGP Config
+      - IPv4 or IPv6
+      - For public VIFs - a /30 public IP is allocated by you. If you dont have it, ask AWS
+      - For Private, any IP range from 169.254.0.0/16
+      - For IPv6, automatically allocated /125 range
+      - ASN public or private. The Public ASN must be owned by customer
+      - MD5 authentication key
+      - Prefixes to be advertised (only for public VIF). AWS verifies that you do own this range.
+    - Jumbo frames
+      - private - 9001 MTU
+      - transit VIF - 8500 MTU.
+      - Not supported on public VIF
   - Public VIFs
+    - Enables your On-prem network to all AWS Public IPs globally. So to restrict access to a certain region, you can download the ip-ranges.json document and filter out the IPs for the region that you want and whitelist these.
     - Used to communicate to services that don't run in VPC or have public IPs if they do run in VPCs or services that work in AWS public zone such as SNS, SQS, S3
+    - Since VPN creates public IP tunnels with VGW, these can be accessed as well. This helps creating VPN over DX.
     - can access all public zone regions across AWS global network over single public VIF
-    - YOu can advertise any public IPs you own over BGP  
+    - From customer router to AWS, max 1000 route prefixes can be advertised. From AWS side, max 100 prefixes can be advertised.
+    - You can advertise any public IPs you own over BGP  
     - Public VIF and VPN:
       - Encrypted and authenticated connection over DX
       - This implementation uses public VIFs as the connection is being made to VGW/TGW public endpoints. Even though a public VIF is used, the connection created into the VPC is still private
@@ -305,8 +357,13 @@
     - Generally associated with VGW which must be in same region in DX location.
     - No encryption on private VIFs by default but application can layer encryption over HTTPS.
     - Private VIFs can be terminated at VGW or Direct Connect gateway. The VGW has a limitation that it must be in same region as DX location.  
-    - Max 100 prefixes can be advertised over the Private VIFs
+    - Max 100 prefixes can be advertised over the Private VIFs to the AWS. These will be propagated into the subnet route tables if route propagation is enabled.
     - Regarding BGP, the AWS ASN is configured on the VGW while the private ASN that you own must be configured on the VIF
+    - Jumbo frame upto 9001 MTU can be supported.
+    - Access over Private VIFs:
+      - Can't access VPC DNS resolver at base +2 address. Route53 resolver inbound and outbound can be accessed
+      - VPC Gateway endpoints can't be accessed
+      - VPC Interface Endpoints can be accessed
   - Transit VIFs
     - integration with transit gateway and direct connect using DX gateway
     - Only 1 transit VIF per DX connection is allowed
@@ -318,18 +375,70 @@
     - BGP keep alives 30 seconds --- takes around 90 seconds to detect failover
     - With BFP, failover is less than a second. Liveness detection is 300 ms and takes around 900 ms to detect failover
     - AWS side BFP is enabled by default but customer side requires some config.
-  - BGP Communities:
-    - extra tags/metadata for advertised prefixes in BGP. Some common are:
-      - NO_EXPORT: Dont advertise to external preers
-      - NO_ADVERTISE: dont advertise to anyone
-    - regular communities are used to select where and what to advertise. There are used with ASN numbers. E.g. 9100 is local only, 9200 is continet or 9300 is global. No community also means global.
-    - So basically communities control how far the AWS shoud advertise our routes amd allows BGP admins to define rules for incoming prefix advertisements as well.
+  - BGP Communities and routing policies:
+    - Routing policies:
+      - Inbound routing policy is for traffic going into AWS.
+      - Outbound routing policy is for traffic going out of AWS.
+    - Communities:
+      - extra tags/metadata to scope for advertised prefixes in BGP and influence preferred paths. Some common are:
+        - NO_EXPORT: Dont advertise to external preers
+        - NO_ADVERTISE: dont advertise to anyone
+      - regular communities are used to select where and what to advertise. There are used with ASN numbers. E.g. 9100 is local only, 9200 is continet or 9300 is global. No community also means global.
+      - So basically communities control how far the AWS shoud advertise our routes amd allows BGP admins to define rules for incoming prefix advertisements as well.
+    - Public VIF Routing policy and BGP Communities:
+      - Inbound i.e. traffic to aws
+        - must specify public IPv4 or IPv6 prefixes to advertise over BGP
+        - must own these public IP addresses
+        - Traffic must be destined to Amazon public prefixes
+        - AWS DX performs inbound packet filtering to ensure that source IP is from your public IP range
+      - Outbound i.e from AWS
+        - Longest prefix match and AS_PATH can be used to influence the routing
+        - Advertise all public prefixes with NO_EXPORT tag
+        - Additionally AWS advertises 7224:8100 and 7224:8200 community tags
+        - In case of multiple AWS DX connections, adjust the load sharing with ECMP
+      - Scenarios
+        - Active-Active DX connection with Public VIFs
+          - if using public ASN, CGW must advertise the same prefix with same BGP attributes on both public VIFs. This config load balances the traffic on both public VIFs.
+          - If using private ASN, loadbalancing and active active config is not possible.
+        - Active-Passive DX connection with Public VIFs
+          - if using public ASN, CGW must advertise the same prefix on both public VIFs. However, advertise the on-prem public prefixes with additional AS_PATH prepepnds in the BGP attributes on the standby connection. Also increase the local-pref to ensure that on-prem always chooses the active path for sending traffic to AWS. So remember that longest AS_PATH to make sure AWS chooses the correct connection while local-pref (higher the number, better it is) is to ensure that on-prem side selects the correct path.
+          - If using private ASN, use longer prefixes (i.e. /25 > /24) on primary connection so that the primary route becomes more specific and therefore gets selected. So advertise a /24 network as two /25 on the active connection.
+        - BGP Communities with Public VIF
+          - BGP communities control the scope for advertisement of the prefixes
+          - Innound (i.e. to aws):
+            - Local region: 7224:9100
+            - Conttinent: 7224:9200
+            - Global: 7224:9300 (default option)
+            - NO_EXPORT
+          - Outbound (i.e. from aws):
+            - 7224:8100: Routes that originate from same AWS region in which DX point of presence is associated
+            - 7224:8200: Continent
+            - No tag: Global
+            - NO_EXPORT  
+          - because of the NO_EXPORT tag, these routes will not be further advertised
+          - CGW can filter the routes based on these tags and drop the ones that are not needed.
+    - Private VIF Routing Policies and BGP Commuities
+      - Routing policy:
+        - AWS evaluates longest prefix
+        - If prefix matches, AWS uses the distance from local region to DX location
+        - if prefix matches and still there are multiple private VIFs in same region as the DX, then the shortest AS_PATH is selected. So set one of the DX VIF with longer AS_PATH than the other.
+        - This behavior can be modified by assigning local preference BGP communities. So for example, if same prefix is used across two Private VIFs in two regions then by default the DX is going to prefer the route which is in the same region. However, to make the other region route as the preferred one, set local preference BGP community tags where 7224:7300 takes highest precendence, 7224:7200 takes medium precendence and 7224:7100 takes lowest precendence. Note that local preference tags are evaluated before AS_PATH. This can be used as Active/Passive architecture.
   - DX gateway
+    - What problems does DX GW solve?
+      - Can access multiple VPCs using a single private VIF. Without this, only 1 VGW (and therefore 1 VPC) can be connected to 1 private VIF.
     - Direct Connect itself is a regional service. The DX gateway is a global device.
-    - So a private VIF is created to attach to the DX gateway in any region to integrate the on-prem network with AWS. Then the DX gateway can be associated with VGWs attached to VPCs globally.
+    - DX GW is used for VPC<->ON-prem connectivity only. It can not be used for public endpoint connectivity such as S3 etc.
+    - So a private VIF is created to attach to the DX gateway in any region to integrate the on-prem network with AWS. Then the DX gateway can be associated with VGWs attached to VPCs globally. Both the private VIF and DX GW must be owned by same account although the DX GW can subsequently connect to VGWs in different regions and differnt accounts.
+    - Overlapping CIDRs not allowed for VPCs connected to DX GW.
+    - Transitive routing is not allowed between directly attached VPCs with the DX GW.
     - The DX gateway allows all VPCs in any region to communicate with the on-prem network. However the communication between the VPCs is not allowed on the same DX gateway.
     - Each DX connection can have upto 50 private VIFs. Each private VIF can connect to 1 DX gateway meaning each DX connection can support upto 50 DX gateways. Each DX gateway can be associated with 10 VPCs. Meaning a single DX connection using DX gateway can connect up to 500 VPCs.
     - Other AWS accounts can create AWS association proposal which can be approved by shared account DX gateway. In this case, the shared account owns the routing as well.
+    - Multiple private VIFs can be connected to a single DX GW to connect multiple on-prem sites to the AWS. Max 30 VIFs can be attached to single DX GW. Similar to VPCs directly connected with DX GW, these on-prem sites will also have no transitive routing.
+  - DX GW and TGW
+    - A transit VIF must be used to connect DX GW to the DX if a connection is to be made between DX GW and TGW.
+    - Max 3 TGW can be used to connect with DX GW. These 3 TGW can be in differnt regions.
+    - Can publish max 20 routes from each TGW to the DX GW.
   - DX Resiliency
     - By default, there is no resiliency in DX implementation as by default, most connections are only single connection.
     - The best approach is to use two DX connections to differnet DX locations which has two connections to customer routers which are connected to pair of two routers on-prem in two different customer locations.
@@ -339,7 +448,31 @@
     - do add some resiliency benefits but AWS does not really consider them
     - Active/Active connections where all memebers must be with same speed config and should terminate at same DX location.
     - benefit is speed and not resiliency
-    - minimumLinks attrobute means LAG is active as long as minimum number of links are active ( remember max is 4)
+    - minimumLinks attrobute means LAG is active as long as minimum number of links are active ( remember max is 4 and default value is 0)
+  - DX Troubleshooting
+    - No physical connectivity - Layer 1 issues
+      - Check Cross Connect is complete
+      - Ports are correct
+      - Routers are on
+      -CW metrics for physical errors
+    - VIF is down
+      - Check IP addresses are correct
+      - VLAN IDs should be correct
+      - Try clearing ARP table
+      - VLAN truncking enabled at intermediate devices
+    - BGP Session is down
+      - Boths ends use correct ASN
+      - Peer IPs are correct
+      - MD5 Auth Key correct
+      - < 100 Prefixs for private VIFs
+      - < 1000 prefixes for public VIFs
+      - Fiewall not blocking port 179
+      - BGP logs
+    - Not able to reach destination
+      - Advertising routes for on-prem prefixes
+      - For public VIF it should be publically routable prefixes
+      - SG and NACL
+      - VPC Route Table
 
 
 ### EC2 Networking
@@ -773,17 +906,17 @@
 
   - VPCs are regionally resilient meaning that complete region failure will cause VPC failure
   - Subnets are AZ resilient i.e. these are in 1 AZs
-  - ELBs are regional products as they have LB nodes in 2+AZs, so LB is functional as long region has not failed 
-  - Public Services like S3, SNS are also region resilient 
-  - To make application resilient across AZs, provision multiple subnets in distinct AZs behind a LB 
-  - To allow multi region resiliency, we can deploy app in multiple regions and each regional endpoint can be health checked using Route53. 
-  
+  - ELBs are regional products as they have LB nodes in 2+AZs, so LB is functional as long region has not failed
+  - Public Services like S3, SNS are also region resilient
+  - To make application resilient across AZs, provision multiple subnets in distinct AZs behind a LB
+  - To allow multi region resiliency, we can deploy app in multiple regions and each regional endpoint can be health checked using Route53.
+
 ### Workshop links
 
 - [Networking Immersion Day](https://networking.workshop.aws/)
 - [Network Firewall Workshop](https://networkfirewall.workshop.aws/)
 - [Network Fireall Hands On](https://catalog.us-east-1.prod.workshops.aws/workshops/d071f444-e854-4f3f-98c8-025fa0d1de2f/en-US)
-- [Protecting workloads from instance to edge](https://protecting-workloads.awssecworkshops.com/workshop/)
+-  [Protecting workloads from instance to edge](https://protecting-workloads.awssecworkshops.com/workshop/)
 - [Finding and addressing network misconfigurations](https://validating-network-reachability.awssecworkshops.com/)
 - [Disaster Recovery with Route53](https://catalog.us-east-1.prod.workshops.aws/workshops/4d9ab448-5083-4db7-bee8-85b58cd53158/en-US/)
 - [Secure Hybrid Access to S3 using VPC Endpoints](https://catalog.us-east-1.prod.workshops.aws/workshops/3a8d4ddf-66c5-4d26-ae6f-6292a517f46c/en-US)
