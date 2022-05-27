@@ -40,8 +40,8 @@
 - VPC Secondary Blocks
   - Secondary CIDR blocks can be added to the VPC
   - The secondary CIDR block must not overlap with existing CIDR or peered VPC CIDR
-  - If primary CIDR is from RFC1918, then secondary should also be from same RFC1918 CIDR range and not from the remaining two CIDR ranges. Or you can use 100.64.0.0/16 range or any public IP range. 
-  - If primary CIDR range is 100.64.0.0/16 or public, then only non-overalpping public anges are allowed. 
+  - If primary CIDR is from RFC1918, then secondary should also be from same RFC1918 CIDR range and not from the remaining two CIDR ranges. Or you can use 100.64.0.0/16 range or any public IP range.
+  - If primary CIDR range is 100.64.0.0/16 or public, then only non-overalpping public anges are allowed.
   - CIDR block must not be same or larger than CIDR blocks of any of the routes in VPC Route tables
   - Can have total 5 IPv5 and 1 IPv6 CIDR block for VPC
 - VPC Flow logs
@@ -104,7 +104,10 @@
   - Path-vector protocol that it exchanges best path to a destination between peers. This best path is called ASPATH. By default, the focus is on best path and not on the link speed etc.
   - iBGP is routing within an AS while eBGP is routing between AS.
   - The routers within BGP network exchanges the routes with each other and append their ASN to the path before advertising.
-  - Since BGP prefers the shortest path routes even though this may be the slowest performance path, 'AS Path Prepending' can be used to artifically make the shortest path longer so as to make alternative path a preferred one if it has better bandwidth and link speeds.
+  - Routing decisions can be influenced in the following way:  
+    - Since BGP prefers the shortest path routes even though this may be the slowest performance path, 'AS Path Prepending' can be used to artifically make the shortest path longer so as to make alternative path a preferred one if it has better bandwidth and link speeds. This works when traffic needs to go to other ASs.
+    - If the traffic stays within an AS, local_pref can be used to make one route preferred over the other. The highest preferance value takes precedance.
+    - If you have two routes to another AS and these routes terminate at different routers, then Multi Exit Discriminator (MED) can be used. That is it comes into picture when the AS_PATH and local_pref are same. So you can set different MED values for each of the connections, then the source router will pick the route with the lowest value. MED is exchanged between ASs. 
 
 ### Global Accelerator
 
