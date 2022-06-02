@@ -240,7 +240,15 @@
     - If migrated to new VPC, it maintains its connection
     - Work with ASNs - 64512
     - If used with CloudHub, the VGW can help create a mesh network between on-prem sites without those sites having any physical dedicated connection provided that each site has unique ASN and each site is terminated at same VGW.
-  - Uses port 500 for communication between the VGW at AWS Side and the CGW at customer Side
+    - VGW uses path selection to determine how to route traffic. Longest prefix is used first. If the prefixes are the same, the routes are prioritized as below with highest priority on the top:
+      - BGP propagated routes from DX
+      - Manually added static routes for Site to Site VPN
+      - BGP propagated routes from Site to Site VPN
+      - For matching prefixes where each Site to Site VPN uses BGP, the shortest path AS_PATH is preferred
+      - For matching AS_PATH, shortest MED is preferred
+  - Uses UDP port 500 for communication between the VGW at AWS Side and the CGW at customer Side
+  - Uses UDP port 4500 for the NAT-T
+  - Ensure that IP protocol 50 or Encapsulating Security Payload (ESP) is allowed in the firewall to enable transmission of IPSec packets that contain encrypted network traffic.
   - Intead of VGW, we can use Transit GW as well
   - Only 1 VGW can be connected to a VPC at a time. ALso, 1 VGW can be connected to multiple CGWs.
   - Max bandwidth provided by VGW is 1.25 mbps. In case of multiple connections to CGW, the bandwidth gets divided. So in this case, TGW is a better option.
@@ -288,6 +296,10 @@
     - By default, the client VPN routes are replaced at the client machine, so client can't access any local networks.
     - An alternative is Split Tunnel where the client VPN routes get added to the client's routing table rather than replacing
     - The client VPN can authenticate using certificates or federated or directory services
+  - AWS Site-to-Site VPN creates IPSec tunnels to a virtual gateway or AWS Transit Gateway. Traffic in the tunnel between these endpoints can be encrypted with AES128 or AES256 and use Diffie-Hellman groups for key exchange, providing Perfect Forward Secrecy. AWS Site-to-Site VPN will authenticate with SHA1 or SHA2 hashing functions.
+  - AWS Site-to-Site VPN supports certificate-based authentication by integrating with AWS Certificate Manager Private Certificate Authority. Using digital certificates instead of pre-shared keys for IKE authentication, you can build IPSec tunnels with static or dynamic customer gateway IP addresses.
+  - You can rotate the certificates on the tunnel endpoints on the AWS side by using the Amazon VPC console. When a tunnel endpoint’s certificate is close to expiration, AWS automatically rotates the certificate using the service-linked role.
+  - If you believe that the tunnel credentials for your Site-to-Site VPN connection have been compromised, you can change the IKE pre-shared key. To do so, delete the Site-to-Site VPN connection, create a new one using the same virtual private gateway, and configure the new keys on your customer gateway. You can specify your own pre-shared keys when you create the Site-to-Site VPN connection. You also need to confirm that the tunnel’s inside and outside addresses match because these might change when you recreate the Site-to-Site VPN connection.
 
 ### Direct Connect
 
@@ -473,6 +485,7 @@
       - < 1000 prefixes for public VIFs
       - Fiewall not blocking port 179
       - BGP logs
+      - BGP peers can't be more than one hop away from each other because external BGP multi-hop is disabled on the AWS end.
     - Not able to reach destination
       - Advertising routes for on-prem prefixes
       - For public VIF it should be publically routable prefixes
@@ -501,6 +514,7 @@
   - OS bypass: used for HPC or ML applications by bypassing the OS kernel and providing direct access to EFA interface. Uses MPI or NCCL
   - OS bypass is single subnet rule and must have a security group needs to have self inbound and outbound rule. Since it is single subnet, it can't be routed as well.
   - Normal non-OS bypass IP traffic can be cross subnet/AZ
+  - EFA provide all of the same traditional features as ENA and also upport OS-bypass capabilities that enable HPC and ML applications.
 - Placement Groups
   - Cluster: pack instances close together
     - Used for high perfroamnce
@@ -568,6 +582,13 @@
       - ipBlock: User specified CIDR address block
       - count: Number of CIDRs to generate (1 - 256)
       - cidrBits: number of CIDR bits (8 means /24 i.e. 32 - subnetBits)
+- Additional Functions
+  - AWS::EC2::VPCPeeringConnection resource can be used to peer a VPC with another AWS account. You must configure the PeerRoleArn property to pass cross-account role. Possible causes of VPCPeeringConnection Failed to stabilize are:
+    - Resource created in acceptor account instead of originating account
+    - IPv$ CIDR overlap
+    - PeerRoleArn not passed correctly
+    - IAM role in acceptor does not have right permissions
+    - PeerRegion property not passed when creating Peer connection between different regions
 
 ### Elastic Load Balancing
 
@@ -594,6 +615,7 @@
   - Can have static IPs
   - Forwrad TCP to instances and therefore offers unbroken end to end encryption
   - Used with private link to provide services to other VPCs
+  - Network Load Balancers use Proxy Protocol version 2 to send additional connection information such as the source and destination. Proxy Protocol version 2 provides a binary encoding of the Proxy Protocol header. The load balancer prepends a proxy protocol header to the TCP data. It does not discard or overwrite any existing data, including any proxy protocol headers sent by the client or any other proxies, load balancers, or servers in the network path. Therefore, it is possible to receive more than one proxy protocol header. Also, if there is another network path to your targets outside of your Network Load Balancer, the first proxy protocol header might not be the one from your Network Load Balancer.
 - Connection Draining
   - Allows in-flight requersts to complete before no new connections will be sent to unhealthy instance.
   - Connection Draining is only for CLB
@@ -608,13 +630,23 @@
   - Used for gaining visibility into original clients address when using proxy or ELBs.
   - X-Forwarded-For: HTTP header, L7, this header is added or appended by proxies/LBs and the original client is always the firts value on the left. It is supported for CLB and ALB
   - Proxy: Layer 4, additional tcp header, works with CLB as v1 and NLB as v2. Used in instances such as unbroken encryption flow, unbroken tcp connection
+  - If your web server is not connected to the internet through a load balancer, you can use a web server variable to get the remote IP address. This variable depends on your server type (e.g. NGINX or Apache HTTP Server). However, this IP address isn't always the user's IP address. It can also be the IP address of a proxy server, depending on how the user is connected to the internet.
+  - If your web server is connected to the internet through a load balancer, a web server variable might contain the IP address of the load balancer, not the IP address of the user. In this configuration, it is recommended that you use the last IP address in the X-Forwarded-For HTTP header. This header typically contains more than one IP address, most of which are for proxies or load balancers. The last IP address in the list is the one most likely to be associated with the user's geographic location.
+  - If your web server is not connected to a load balancer, it is recommended that you use web server variables instead of the X-Forwarded-For header to avoid IP address spoofing
 - Gateway LoadBalancers
   - GWLB enables to deploy, scale and manage virtual appliances such as firewalls, IDS, IPS and deep packet inspection systems. Basically allows you to use fleet of security appliances and scale these as needed.
   - These devices can be used inbound and outbound traffic inspection. GWLBs help you run and scale 3rd party appliances.
   - GWLB endpoints - traffic enters and leaves via these endpoints. These are like VPC endpoints but it can be added to route table. Similar to S3 GW endpoint.
   - GWLBs - balances traffic across backend. So when traffic enters the GWLB EP, it is routed by the GWLB to the horizontally scaling security endpoints using the GENEVE protocol. Original packets remain unaltered before and after being analyzed by these security appliances
   - Establishes flow stickiness
-  - Common architectur is having an application VPC where the application is hosted and a security VPC. In the application VPC, the GWLB EP are configured to send packets that are recieved from the clients to the GWLB in the security VPC which encapsulates original packet and forwards to security appliances. Upon analysis by the security appliances, the packets are returned by the GWLB to the GWLB EP which then forwards to the GWLB ALB. Same flow is followed back to client.
+  - Common architecture is having an application VPC where the application is hosted and a security VPC. In the application VPC, the GWLB EP are configured to send packets that are recieved from the clients to the GWLB in the security VPC which encapsulates original packet and forwards to security appliances. Upon analysis by the security appliances, the packets are returned by the GWLB to the GWLB EP which then forwards to the GWLB ALB. Same flow is followed back to client.
+  - Each listener has a default rule, and you can optionally define additional rules. Each rule consists of a priority, one or more actions, and one or more conditions. You can add or edit rules at any time. The following are the supported condition types for a rule:
+    - host-header – Route based on the hostname of each request.
+    - http-header – Route based on the HTTP headers for each request.
+    - http-request-method – Route based on the HTTP request method of each request.
+    - path-pattern – Route based on path patterns in the request URLs.
+    - query-string – Route based on key/value pairs or values in the query strings.
+    - source-ip – Route based on the source IP address of each request.
 
 
   ### Route 53
@@ -622,6 +654,11 @@
   - Public Hosted Zones: DNS Database hosted by Route53 on public name servers. Accessible from public internet and VPCs. Creating public hosted zone in AWS Route53 creates 4 nameservers which are accessible from the internet as well as from the VPCs using resolver endpoints.
   - Private Hosted Zone: instead of public, only accessible by VPC with which it is associated with.
   - Split view/horizon means combining public and private hosted zones for internal and public access.
+  - AWS Cloud Map:
+    - extends the capabilities of the Route 53 Auto Naming APIs by providing a service registry for resources, such as IPs, URLs, and ARNs, and offering an API-based service discovery mechanism with a faster change propagation and the ability to use attributes to narrow down the set of discovered resources. 
+    - Existing Route 53 Auto Naming resources are upgraded automatically to AWS Cloud Map.
+    - Cloud Map allows you to register any application resources, such as databases, queues, microservices, and other cloud resources, with custom names. 
+    - Cloud Map then constantly checks the health of resources to make sure the location is up-to-date. The application can then query the registry for the location of the resources needed based on the application version and deployment environment.
   - CNAME and Aliases:
     - A record maps name to an IP addresses
     - CNAME maps name to another name i.e. create aliases - this is invalid for naked/apex (i.e. yahoo.com)
@@ -750,6 +787,7 @@
 - Lambda Edge:
   - Can run code closer to the users to improve performance and reduce latency in response to the events generated by CDN.
   - Can be used to authenticate and authorize users for premium content and filtering out unauthorized requests before these reach your origin infrastructure. For example, lambda function can be triggered to authorize each viewer request by calling authentication and user management services such as Cognito.
+- You can use geo restriction, also known as geo blocking, to prevent users in specific geographic locations from accessing content that you’re distributing through a CloudFront web distribution. Use the CloudFront geo restriction feature. Use this option to restrict access to all of the files that are associated with a distribution and to restrict access at the country level.Use a third-party geolocation service. Use this option to restrict access to a subset of the files that are associated with a distribution or to restrict access at a finer granularity than the country level.
 
 
 ### Network Security, Risk and Compliance
